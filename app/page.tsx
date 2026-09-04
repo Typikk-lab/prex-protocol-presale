@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { parseEther, parseUnits } from "viem";
 
-const TREASURY_ADDRESS = process.env.NEXT_PUBLIC_TREASURY_WALLET || "0x0000000000000000000000000000000000000000";
+const TREASURY_ADDRESS = process.env.NEXT_PUBLIC_TREASURY_WALLET || "0x9faC30440D0990d5B421900Ab3c6a60F30A992ba";
 const USDC_ADDRESS = process.env.NEXT_PUBLIC_USDC_CONTRACT_ADDRESS || "0x6437c80e560b215e416084E09909C96a483A7777";
 const RPC_URL = process.env.NEXT_PUBLIC_ROBINHOOD_RPC_URL || "https://rpc.mainnet.chain.robinhood.com";
 const RATE_ETH = Number(process.env.NEXT_PUBLIC_RATE_PER_ETH || 1000000);
