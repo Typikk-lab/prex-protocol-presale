@@ -1,253 +1,275 @@
 "use client";
 
 import { useState } from "react";
-import { parseEther, parseUnits, encodeFunctionData } from "viem";
-import { switchToRobinhoodChain, TREASURY_ADDRESS } from "@/lib/robinhoodChain";
+import { parseEther, parseUnits } from "viem";
 
-type PaymentCurrency = "ETH" | "USDC";
+const TREASURY_ADDRESS = process.env.NEXT_PUBLIC_TREASURY_WALLET || "0x0000000000000000000000000000000000000000";
+const USDC_ADDRESS = process.env.NEXT_PUBLIC_USDC_CONTRACT_ADDRESS || "0x6437c80e560b215e416084E09909C96a483A7777";
+const RPC_URL = process.env.NEXT_PUBLIC_ROBINHOOD_RPC_URL || "https://rpc.mainnet.chain.robinhood.com";
+const RATE_ETH = Number(process.env.NEXT_PUBLIC_RATE_PER_ETH || 1000000);
+const RATE_USDC = Number(process.env.NEXT_PUBLIC_RATE_PER_USDC || 300);
 
-const USDC_ADDRESS = (process.env.NEXT_PUBLIC_USDC_CONTRACT_ADDRESS ||
-  "0x0000000000000000000000000000000000000000") as `0x${string}`;
-
-const ERC20_TRANSFER_ABI = [
-  {
-    name: "transfer",
-    type: "function",
-    stateMutability: "nonpayable",
-    inputs: [
-      { name: "to", type: "address" },
-      { name: "amount", type: "uint256" },
-    ],
-    outputs: [{ name: "", type: "bool" }],
-  },
-] as const;
-
-export default function TerminalPresalePage() {
+export default function Home() {
   const [account, setAccount] = useState<string | null>(null);
-  const [currency, setCurrency] = useState<PaymentCurrency>("ETH");
-  const [amount, setAmount] = useState<string>("0.05");
-  const [loading, setLoading] = useState<boolean>(false);
+  const [selectedAsset, setSelectedAsset] = useState<"ETH" | "USDC">("ETH");
+  const [amount, setAmount] = useState<string>("");
   const [logs, setLogs] = useState<string[]>([
     "PREX_OS v2.6.4 [ROBINHOOD_CHAIN_L2]",
     "SYSTEM_STATUS: Vault active (85% Pre-IPO Basket)",
-    "TYPE 'help' OR CONNECT WALLET TO INITIALIZE DEPOSIT...",
+    "TYPE 'help' OR CONNECT WALLET TO INITIALIZE DEPOSIT..."
   ]);
-
-  const rateEth = Number(process.env.NEXT_PUBLIC_RATE_PER_ETH || 1000000);
-  const rateUsdc = Number(process.env.NEXT_PUBLIC_RATE_PER_USDC || 300);
-
-  const activeRate = currency === "ETH" ? rateEth : rateUsdc;
-  const estimatedTokens = (parseFloat(amount) || 0) * activeRate;
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
 
   const appendLog = (msg: string) => {
-    const timestamp = new Date().toISOString().split("T")[1].slice(0, 8);
-    setLogs((prev) => [...prev.slice(-6), `[${timestamp}] ${msg}`]);
+    setLogs((prev) => [...prev, `[${new Date().toLocaleTimeString()}] ${msg}`]);
   };
 
   const connectWallet = async () => {
-    if (!window.ethereum) {
-      appendLog("ERROR: EVM Web3 Provider not found. Install Robinhood / MetaMask.");
+    if (typeof window === "undefined" || !window.ethereum) {
+      appendLog("ERROR: EVM Web3 Wallet not detected in browser.");
       return;
     }
 
     try {
-      appendLog("INITIALIZING_WALLET_HANDSHAKE...");
-      const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
-      setAccount(accounts[0]);
-      appendLog(`CONNECTED: ${accounts[0].slice(0, 6)}...${accounts[0].slice(-4)}`);
-      await switchToRobinhoodChain();
-      appendLog("NETWORK_SYNC: Robinhood Chain (Chain ID: 4663)");
+      appendLog("CONNECTING_WALLET...");
+      const accounts = await window.ethereum.request({
+        method: "eth_requestAccounts",
+      });
+
+      if (accounts && accounts[0]) {
+        setAccount(accounts[0]);
+        appendLog(`CONNECTED: ${accounts[0].slice(0, 6)}...${accounts[0].slice(-4)}`);
+        await switchToRobinhoodChain();
+      }
     } catch (err: any) {
-      appendLog(`ERR_CONNECT_FAILED: ${err.message}`);
+      appendLog(`ERROR_CONNECTING: ${err.message || "User rejected request"}`);
     }
   };
 
-  const handleCurrencyChange = (newCurrency: PaymentCurrency) => {
-    setCurrency(newCurrency);
-    setAmount(newCurrency === "ETH" ? "0.05" : "100");
-    appendLog(`CURRENCY_SWITCH -> ${newCurrency}`);
+  const switchToRobinhoodChain = async () => {
+    if (typeof window === "undefined" || !window.ethereum) return;
+
+    try {
+      appendLog("VERIFYING_CHAIN_ID_4663...");
+      await window.ethereum.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: "0x1237" }], // Chain ID 4663 in Hex
+      });
+      appendLog("NETWORK_SET: Robinhood Chain L2 Mainnet");
+    } catch (switchError: any) {
+      if (switchError.code === 4902) {
+        try {
+          appendLog("ADDING_ROBINHOOD_CHAIN_L2...");
+          await window.ethereum.request({
+            method: "wallet_addEthereumChain",
+            params: [
+              {
+                chainId: "0x1237",
+                chainName: "Robinhood Chain",
+                nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+                rpcUrls: [RPC_URL],
+                blockExplorerUrls: ["https://robinhoodchain.blockscout.com"],
+              },
+            ],
+          });
+          appendLog("NETWORK_ADDED_AND_SWITCHED: Robinhood Chain L2");
+        } catch (addError: any) {
+          appendLog(`ERROR_ADDING_CHAIN: ${addError.message}`);
+        }
+      } else {
+        appendLog(`ERROR_SWITCHING_CHAIN: ${switchError.message}`);
+      }
+    }
   };
 
-  const handleDeposit = async () => {
+  const executeDeposit = async () => {
     if (!account) {
-      await connectWallet();
+      appendLog("ERROR: Connect wallet first.");
+      return;
+    }
+
+    if (typeof window === "undefined" || !window.ethereum) {
+      appendLog("ERROR: EVM Wallet missing.");
       return;
     }
 
     const numericAmount = parseFloat(amount);
     if (isNaN(numericAmount) || numericAmount <= 0) {
-      appendLog(`ERR_INVALID_INPUT: Enter a valid ${currency} value.`);
+      appendLog("ERROR: Invalid deposit quantity.");
       return;
     }
 
+    setIsProcessing(true);
+    let txHash = "";
+
     try {
-      setLoading(true);
-      appendLog("VERIFYING_CHAIN_ID_4663...");
+      const ethereum = window.ethereum;
 
-      const isCorrectChain = await switchToRobinhoodChain();
-      if (!isCorrectChain) {
-        appendLog("ERR_WRONG_CHAIN: Switch wallet to Robinhood Chain.");
-        setLoading(false);
-        return;
-      }
+      if (selectedAsset === "ETH") {
+        appendLog(`PROMPTING_ETH_TRANSFER: ${amount} ETH -> ${TREASURY_ADDRESS.slice(0, 6)}...`);
+        const valueHex = "0x" + parseEther(amount).toString(16);
 
-      let txHash = "";
-
-      if (currency === "ETH") {
-        appendLog(`PROMPTING_ETH_TRANSFER (${numericAmount} ETH) -> TREASURY`);
-        const valueHex = "0x" + parseEther(numericAmount.toString()).toString(16);
-
-        txHash = await window.ethereum.request({
+        txHash = await ethereum.request({
           method: "eth_sendTransaction",
-          params: [{ from: account, to: TREASURY_ADDRESS, value: valueHex }],
+          params: [
+            {
+              from: account,
+              to: TREASURY_ADDRESS,
+              value: valueHex,
+            },
+          ],
         });
       } else {
-        appendLog(`PROMPTING_USDC_TRANSFER (${numericAmount} USDC) -> TREASURY`);
-        const data = encodeFunctionData({
-          abi: ERC20_TRANSFER_ABI,
-          functionName: "transfer",
-          args: [TREASURY_ADDRESS, parseUnits(numericAmount.toString(), 6)],
-        });
+        appendLog(`PROMPTING_USDC_TRANSFER: ${amount} USDC -> ${TREASURY_ADDRESS.slice(0, 6)}...`);
+        const parsedAmount = parseUnits(amount, 6);
+        
+        const recipientHex = TREASURY_ADDRESS.replace("0x", "").padStart(64, "0");
+        const amountHex = parsedAmount.toString(16).padStart(64, "0");
+        const data = `0xa9059cbb${recipientHex}${amountHex}`;
 
-        txHash = await window.ethereum.request({
+        txHash = await ethereum.request({
           method: "eth_sendTransaction",
-          params: [{ from: account, to: USDC_ADDRESS, data: data }],
+          params: [
+            {
+              from: account,
+              to: USDC_ADDRESS,
+              data: data,
+            },
+          ],
         });
       }
 
-      appendLog(`TX_BROADCAST: ${txHash.slice(0, 14)}... Waiting L2 block confirm...`);
+      appendLog(`TX_SUBMITTED: ${txHash}`);
+      appendLog("VERIFYING_DEPOSIT_ON_CHAIN...");
 
       const res = await fetch("/api/verify-deposit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           txHash,
+          expectedType: selectedAsset,
           userAddress: account,
-          amount: numericAmount,
-          paymentType: currency,
         }),
       });
 
-      const data = await res.json();
-      if (data.success) {
-        appendLog(`[SUCCESS] ALLOCATED ${data.tokensAllocated.toLocaleString()} $PREX`);
+      const result = await res.json();
+      if (result.success) {
+        const estimatedTokens = (
+          numericAmount * (selectedAsset === "ETH" ? RATE_ETH : RATE_USDC)
+        ).toLocaleString();
+        appendLog(`DEPOSIT_VERIFIED: Allocated ${estimatedTokens} $PREX to ${account.slice(0, 6)}...`);
       } else {
-        appendLog(`[WARN] Tx confirmed on-chain, backend log warning: ${data.error}`);
+        appendLog(`VERIFICATION_WARNING: ${result.error || "Pending confirmation"}`);
       }
     } catch (err: any) {
-      appendLog(`ERR_TX_REJECTED: ${err.message}`);
+      appendLog(`TRANSACTION_FAILED: ${err.message || "User cancelled"}`);
     } finally {
-      setLoading(false);
+      setIsProcessing(false);
     }
   };
 
+  const calculatedAllocation = () => {
+    const num = parseFloat(amount);
+    if (isNaN(num) || num <= 0) return "0";
+    const rate = selectedAsset === "ETH" ? RATE_ETH : RATE_USDC;
+    return (num * rate).toLocaleString();
+  };
+
   return (
-    <main className="min-h-screen bg-black text-emerald-400 font-mono flex flex-col justify-between p-4 md:p-8 select-none">
-      <header className="border-b border-emerald-900/60 pb-4 mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <div className="flex items-center gap-2 text-xs text-emerald-500/70 mb-1">
-            <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span>ROBINHOOD_CHAIN // CHAIN_ID: 4663</span>
+    <main className="min-h-screen bg-black text-green-500 font-mono p-4 md:p-8 flex flex-col justify-between selection:bg-green-900 selection:text-green-100">
+      <div className="max-w-4xl mx-auto w-full space-y-6">
+        <header className="border-b border-green-800 pb-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-wider text-green-400">
+              PREX_PROTOCOL // PRESALE_TERMINAL
+            </h1>
+            <p className="text-xs text-green-700">CHAIN: ROBINHOOD_L2 (4663)</p>
           </div>
-          <h1 className="text-xl md:text-2xl font-bold tracking-tight text-white flex items-center gap-2">
-            <span className="text-emerald-400">&gt;_</span> PREX_PROTOCOL
-            <span className="text-xs bg-emerald-950 text-emerald-400 border border-emerald-800 px-2 py-0.5 rounded">
-              PRESALE_V1
-            </span>
-          </h1>
-        </div>
+          <button
+            onClick={connectWallet}
+            className="border border-green-500 px-4 py-2 hover:bg-green-950 text-xs font-bold transition-all text-green-300"
+          >
+            {account ? `CONNECTED: ${account.slice(0, 6)}...${account.slice(-4)}` : "EXECUTE: CONNECT_WALLETS"}
+          </button>
+        </header>
 
-        <button
-          onClick={connectWallet}
-          className="border border-emerald-500/40 hover:border-emerald-400 bg-emerald-950/40 hover:bg-emerald-900/60 text-emerald-300 text-xs px-4 py-2 rounded transition font-bold"
-        >
-          {account ? `USER: ${account.slice(0, 6)}...${account.slice(-4)}` : "EXECUTE: CONNECT_WALLETS"}
-        </button>
-      </header>
-
-      <div className="max-w-3xl w-full mx-auto bg-neutral-950 border border-emerald-900/80 rounded-lg p-6 shadow-[0_0_30px_rgba(16,185,129,0.08)] space-y-6">
-        <div className="bg-black/80 border border-emerald-950 p-4 rounded text-xs space-y-2">
-          <div className="text-amber-400 font-semibold">[VAULT_SPECS]</div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-neutral-400">
-            <div>ASSETS: <span className="text-white">Pre-IPO Basket</span></div>
-            <div>DECAY TAX: <span className="text-cyan-400">25% → 0% (90d)</span></div>
-            <div>EST. GAS: <span className="text-emerald-400">&lt; $0.01</span></div>
-            <div>NAV FLOOR: <span className="text-amber-300">$1.00 BASE</span></div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border border-green-900 p-4 bg-zinc-950">
+          <div>
+            <span className="text-xs text-zinc-500 block">NATIVE_ETH_RATE:</span>
+            <span className="text-amber-400 font-bold">1 ETH = {RATE_ETH.toLocaleString()} $PREX</span>
+          </div>
+          <div>
+            <span className="text-xs text-zinc-500 block">USDC_STABLE_RATE:</span>
+            <span className="text-cyan-400 font-bold">1 USDC = {RATE_USDC.toLocaleString()} $PREX</span>
           </div>
         </div>
 
-        <div>
-          <label className="block text-xs text-neutral-400 mb-2 font-semibold">SELECT_PAYMENT_METHOD //</label>
-          <div className="grid grid-cols-2 gap-3">
+        <div className="border border-green-800 p-6 bg-black space-y-4">
+          <h2 className="text-sm font-bold text-green-400">// INITIALIZE_DEPOSIT_MODULE</h2>
+          
+          <div className="flex gap-4">
             <button
-              onClick={() => handleCurrencyChange("ETH")}
-              className={`p-3 text-xs border rounded transition flex items-center justify-between font-bold ${
-                currency === "ETH"
-                  ? "border-emerald-400 bg-emerald-950/80 text-emerald-300"
-                  : "border-neutral-800 bg-black text-neutral-500 hover:text-neutral-300"
+              onClick={() => setSelectedAsset("ETH")}
+              className={`flex-1 py-2 border text-xs font-bold ${
+                selectedAsset === "ETH"
+                  ? "border-green-400 bg-green-950 text-green-300"
+                  : "border-zinc-800 text-zinc-600 hover:border-zinc-700"
               }`}
             >
-              <span>NATIVE_ETH</span>
-              <span className="text-amber-400">1 ETH = 1M $PREX</span>
+              NATIVE_ETH
             </button>
             <button
-              onClick={() => handleCurrencyChange("USDC")}
-              className={`p-3 text-xs border rounded transition flex items-center justify-between font-bold ${
-                currency === "USDC"
-                  ? "border-cyan-400 bg-cyan-950/80 text-cyan-300"
-                  : "border-neutral-800 bg-black text-neutral-500 hover:text-neutral-300"
+              onClick={() => setSelectedAsset("USDC")}
+              className={`flex-1 py-2 border text-xs font-bold ${
+                selectedAsset === "USDC"
+                  ? "border-cyan-400 bg-cyan-950 text-cyan-300"
+                  : "border-zinc-800 text-zinc-600 hover:border-zinc-700"
               }`}
             >
-              <span>USDC_STABLE</span>
-              <span className="text-amber-400">1 USDC = 300 $PREX</span>
+              USDC_STABLE
             </button>
           </div>
-        </div>
 
-        <div className="space-y-2">
-          <label className="block text-xs text-neutral-400 font-semibold">INPUT_DEPOSIT_QUANTITY ({currency}) //</label>
-          <div className="relative">
-            <span className="absolute left-4 top-3.5 text-emerald-500 text-sm font-bold">&gt;</span>
+          <div>
+            <label className="text-xs text-green-600 block mb-1">
+              DEPOSIT_QUANTITY ({selectedAsset}):
+            </label>
             <input
               type="number"
-              min={currency === "ETH" ? "0.001" : "1"}
-              step={currency === "ETH" ? "0.01" : "10"}
+              step="any"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
-              className="w-full bg-black border border-emerald-900 rounded px-8 py-3 text-white focus:outline-none focus:border-emerald-400 font-mono text-sm"
-              placeholder={currency === "ETH" ? "0.05" : "100"}
+              placeholder="0.0"
+              className="w-full bg-zinc-950 border border-green-900 p-3 text-green-400 text-sm focus:outline-none focus:border-green-500"
             />
-            <span className="absolute right-4 top-3 text-xs text-neutral-500 font-semibold">{currency}</span>
           </div>
 
-          <div className="flex justify-between text-xs text-neutral-400 px-1 pt-1">
-            <span>CONVERSION_OUTPUT:</span>
-            <span className="text-white">
-              ESTIMATED: <strong className="text-amber-400">{estimatedTokens.toLocaleString()} $PREX</strong>
-            </span>
+          <div className="text-xs text-zinc-400 flex justify-between">
+            <span>ESTIMATED_ALLOCATION:</span>
+            <span className="text-green-300 font-bold">{calculatedAllocation()} $PREX</span>
           </div>
+
+          <button
+            onClick={executeDeposit}
+            disabled={isProcessing}
+            className="w-full bg-green-900 hover:bg-green-800 text-black font-bold py-3 text-sm transition-colors disabled:opacity-50"
+          >
+            {isProcessing ? "PROCESSING_ON_CHAIN..." : `[EXECUTE DEPOSIT: ${amount || "0"} ${selectedAsset}]`}
+          </button>
         </div>
 
-        <button
-          onClick={handleDeposit}
-          disabled={loading}
-          className="w-full bg-emerald-500 hover:bg-emerald-400 disabled:bg-neutral-800 text-black font-extrabold py-3.5 rounded transition text-sm tracking-wide shadow-[0_0_15px_rgba(16,185,129,0.3)]"
-        >
-          {loading ? "[EXECUTING_TRANSACTION...]" : account ? `[EXECUTE DEPOSIT: ${amount} ${currency}]` : "[CONNECT WALLET TO DEPOSIT]"}
-        </button>
-
-        <div className="bg-black border border-emerald-950 p-4 rounded text-[11px] font-mono space-y-1 overflow-hidden">
-          <div className="text-neutral-500 text-[10px] border-b border-emerald-950 pb-1 mb-2">TERMINAL_CONSOLE_OUTPUT //</div>
-          {logs.map((log, idx) => (
-            <div key={idx} className={log.includes("ERR") ? "text-red-400" : log.includes("SUCCESS") ? "text-amber-300 font-bold" : "text-emerald-500/90"}>
+        <div className="border border-green-900 p-4 bg-zinc-950 h-48 overflow-y-auto space-y-1 text-xs">
+          <div className="text-zinc-600 mb-2">// TERMINAL_CONSOLE_OUTPUT</div>
+          {logs.map((log, i) => (
+            <div key={i} className="text-green-400">
               {log}
             </div>
           ))}
         </div>
       </div>
 
-      <footer className="mt-8 text-center text-xs text-neutral-600 border-t border-emerald-950 pt-4">
-        PREX_PROTOCOL © 2026 // DECENTRALIZED PRE-IPO VAULTS ON ROBINHOOD CHAIN
+      <footer className="text-center text-xs text-zinc-600 mt-8">
+        PREX_PROTOCOL // ROBINHOOD_L2 // ENCRYPTED_EDGE_RUNTIME
       </footer>
     </main>
   );
