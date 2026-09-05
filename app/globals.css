@@ -6,3 +6,33 @@ body {
   background-color: #000000;
   color: #00ff66;
 }
+
+/* Terminal Circuit Breaker Glitch Effect */
+.halt-active {
+  background-color: #1a0000 !important;
+  color: #ff3333 !important;
+  animation: crt-flicker 0.15s infinite;
+}
+
+.halt-active input, .halt-active button {
+  border-color: #ff3333 !important;
+  color: #ff3333 !important;
+}
+
+@keyframes crt-flicker {
+  0% { opacity: 0.9; }
+  50% { opacity: 1; text-shadow: 0 0 4px #ff0000; }
+  100% { opacity: 0.8; }
+}
+
+/* Modal Overlay */
+.terminal-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.9);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(4px);
+}
