@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createPublicClient, http, decodeFunctionData } from "viem";
+import { createPublicClient, http, decodeFunctionData, parseAbi } from "viem";
 
 export const runtime = "edge";
 
@@ -9,6 +9,7 @@ const publicClient = createPublicClient({
   transport: http(rpcUrl),
 });
 
+// ABI for verifying USDC transfers
 const erc20Abi = [
   {
     name: "transfer",
@@ -22,6 +23,11 @@ const erc20Abi = [
   },
 ] as const;
 
+// ABI for verifying the Smart Contract deposit call
+const presaleAbi = parseAbi([
+  "function deposit(address referrer) public payable"
+]);
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -34,13 +40,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const treasuryAddress = (
-      process.env.NEXT_PUBLIC_TREASURY_WALLET || ""
+    // Now pointing to the Presale Contract instead of Treasury
+    const presaleAddress = (
+      process.env.NEXT_PUBLIC_PRESALE_CONTRACT || ""
     ).toLowerCase();
 
     const usdcContractAddress = (
       process.env.NEXT_PUBLIC_USDC_CONTRACT_ADDRESS || ""
     ).toLowerCase();
+
+    if (!presaleAddress) {
+      return NextResponse.json(
+        { success: false, error: "SERVER_CONFIG_MISSING_PRESALE_ADDRESS" },
+        { status: 500 }
+      );
+    }
 
     const receipt = await publicClient.getTransactionReceipt({
       hash: txHash as `0x${string}`,
@@ -60,16 +74,31 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (expectedType === "ETH") {
-      const tx = await publicClient.getTransaction({
-        hash: txHash as `0x${string}`,
-      });
+    const tx = await publicClient.getTransaction({
+      hash: txHash as `0x${string}`,
+    });
 
-      if (tx.to?.toLowerCase() !== treasuryAddress) {
+    if (expectedType === "ETH") {
+      // Verify tx is directed at the Presale Smart Contract
+      if (tx.to?.toLowerCase() !== presaleAddress) {
         return NextResponse.json(
-          { success: false, error: "TREASURY_MISMATCH" },
+          { success: false, error: "PRESALE_CONTRACT_MISMATCH" },
           { status: 400 }
         );
+      }
+
+      // Optional: Decode the function to log the referrer
+      let referrer = "0x0000000000000000000000000000000000000000";
+      try {
+        const { args, functionName } = decodeFunctionData({
+          abi: presaleAbi,
+          data: tx.input,
+        });
+        if (functionName === "deposit" && args) {
+          referrer = args[0] as string;
+        }
+      } catch (e) {
+        console.warn("Could not decode deposit params, likely raw ETH transfer.");
       }
 
       return NextResponse.json({
@@ -77,13 +106,12 @@ export async function POST(req: NextRequest) {
         asset: "ETH",
         amountWei: tx.value.toString(),
         from: tx.from,
+        referrer: referrer,
         blockNumber: receipt.blockNumber.toString(),
       });
+      
     } else if (expectedType === "USDC") {
-      const tx = await publicClient.getTransaction({
-        hash: txHash as `0x${string}`,
-      });
-
+      // Verify tx is interacting with the USDC token contract
       if (tx.to?.toLowerCase() !== usdcContractAddress) {
         return NextResponse.json(
           { success: false, error: "TOKEN_CONTRACT_MISMATCH" },
@@ -99,9 +127,10 @@ export async function POST(req: NextRequest) {
       const recipient = args[0]?.toLowerCase();
       const amount = args[1];
 
-      if (recipient !== treasuryAddress) {
+      // Verify the USDC recipient is the Presale Contract
+      if (recipient !== presaleAddress) {
         return NextResponse.json(
-          { success: false, error: "USDC_TREASURY_MISMATCH" },
+          { success: false, error: "USDC_PRESALE_MISMATCH" },
           { status: 400 }
         );
       }
@@ -126,3 +155,4 @@ export async function POST(req: NextRequest) {
     );
   }
 }
+
