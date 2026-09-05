@@ -3,5 +3,13 @@
   "name": "prex-protocol-presale",
   "compatibility_date": "2026-09-04",
   "compatibility_flags": ["nodejs_compat"],
-  "pages_build_output_dir": ".vercel/output/static"
+  "pages_build_output_dir": ".vercel/output/static",
+  "vars": {
+    "NEXT_PUBLIC_PRESALE_CONTRACT": "",
+    "NEXT_PUBLIC_TREASURY_WALLET": "",
+    "NEXT_PUBLIC_USDC_CONTRACT_ADDRESS": "",
+    "NEXT_PUBLIC_ROBINHOOD_RPC_URL": "",
+    "NEXT_PUBLIC_RATE_PER_ETH": "1000000",
+    "NEXT_PUBLIC_RATE_PER_USDC": "300"
+  }
 }
