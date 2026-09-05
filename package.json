@@ -1,6 +1,6 @@
 {
   "name": "prex-protocol-presale",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -15,7 +15,12 @@
     "next": "14.2.35",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "viem": "^2.56.3"
+    "viem": "^2.56.3",
+    "framer-motion": "^11.0.0",
+    "lucide-react": "^0.344.0",
+    "sonner": "^1.4.0",
+    "clsx": "^2.1.0",
+    "tailwind-merge": "^2.2.1"
   },
   "devDependencies": {
     "@cloudflare/next-on-pages": "^1.13.16",
