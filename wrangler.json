@@ -4,11 +4,17 @@
   "compatibility_date": "2026-09-04",
   "compatibility_flags": ["nodejs_compat"],
   "pages_build_output_dir": ".vercel/output/static",
+  "kv_namespaces": [
+    {
+      "binding": "PREX_KV",
+      "id": "6318d7eb42d44b9ea1e2a6fd72826b3a"
+    }
+  ],
   "vars": {
-    "NEXT_PUBLIC_PRESALE_CONTRACT": "",
-    "NEXT_PUBLIC_TREASURY_WALLET": "",
-    "NEXT_PUBLIC_USDC_CONTRACT_ADDRESS": "",
-    "NEXT_PUBLIC_ROBINHOOD_RPC_URL": "",
+    "NEXT_PUBLIC_PRESALE_CONTRACT": "0x0000000000000000000000000000000000000000",
+    "NEXT_PUBLIC_TREASURY_WALLET": "0x9faC30440D0990d5B421900Ab3c6a60F30A992ba",
+    "NEXT_PUBLIC_USDC_CONTRACT_ADDRESS": "0x6437c80e560b215e416084E09909C96a483A7777",
+    "NEXT_PUBLIC_ROBINHOOD_RPC_URL": "https://rpc.mainnet.chain.robinhood.com",
     "NEXT_PUBLIC_RATE_PER_ETH": "1000000",
     "NEXT_PUBLIC_RATE_PER_USDC": "300"
   }
